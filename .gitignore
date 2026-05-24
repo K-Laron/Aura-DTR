@@ -1,0 +1,29 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/workspace.xml
+/.idea/navitor.xml
+/.idea/assetWizardSettings.xml
+.idea
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# APK Outputs
+*.apk
+*.ap_
+*.desktop
+
+# Android Studio / Certificates
+*.keystore
+*.jks
+*.pepk
+
+# Log files
+*.log
+
+# OS files
+.DS_Store
