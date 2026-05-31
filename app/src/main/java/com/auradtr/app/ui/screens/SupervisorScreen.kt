@@ -38,6 +38,10 @@ import androidx.compose.ui.unit.sp
 import com.auradtr.app.data.TimeLog
 import com.auradtr.app.ui.DtrViewModel
 import com.auradtr.app.ui.theme.*
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
 
 @Composable
 fun SupervisorScreen(viewModel: DtrViewModel) {
@@ -177,6 +181,7 @@ fun SupervisorScreen(viewModel: DtrViewModel) {
                                 pinError = false
                                 failedAttempts = 0
                                 sharedPrefs.edit().putInt("failed_attempts", 0).putLong("lockout_until", 0L).apply()
+                                triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
                             } else {
                                 val newFailedAttempts = failedAttempts + 1
                                 failedAttempts = newFailedAttempts
@@ -189,6 +194,7 @@ fun SupervisorScreen(viewModel: DtrViewModel) {
                                 } else {
                                     pinError = true
                                 }
+                                triggerCustomHaptic(context, HapticPattern.WARNING_PULSE)
                             }
                         },
                         enabled = !isLockedOut,
@@ -213,10 +219,12 @@ fun SupervisorScreen(viewModel: DtrViewModel) {
                                     onSuccess = {
                                         isUnlocked = true
                                         pinError = false
+                                        triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
                                     },
                                     onError = { err ->
                                         if (err != "PIN_FALLBACK") {
                                             pinError = true
+                                            triggerCustomHaptic(context, HapticPattern.WARNING_PULSE)
                                         }
                                     }
                                 ).showBiometricPrompt()
@@ -372,6 +380,7 @@ fun ReviewLogDialog(
     onSubmit: (String, Int, String) -> Unit,
     onReject: (String, String) -> Unit
 ) {
+    val context = LocalContext.current
     var rating by remember { mutableStateOf(5) }
     var comment by remember { mutableStateOf("") }
     
@@ -419,7 +428,52 @@ fun ReviewLogDialog(
                             text = if (isSelected) "★" else "☆",
                             fontSize = 24.sp,
                             color = if (isSelected) BreakYellow else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.clickable { rating = star }
+                            modifier = Modifier.clickable { 
+                                rating = star 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            }
+                        )
+                    }
+                }
+
+                // Quick feedback presets chips (QoL 7)
+                Text(
+                    text = "Quick Feedback Presets:",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+                
+                val quickComments = listOf(
+                    "Excellent daily logs and tasks completed.",
+                    "Log sheet looks complete and approved.",
+                    "Discrepancy in logged shift hours. Please correct and re-submit.",
+                    "Accomplishment notes are too short. Please rewrite."
+                )
+                
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    items(quickComments) { commentText ->
+                        SuggestionChip(
+                            onClick = {
+                                comment = commentText
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            },
+                            label = { Text(
+                                text = if (commentText.contains("Discrepancy") || commentText.contains("too short")) "⚠️ " + commentText.take(15) + "..." else "✓ " + commentText.take(15) + "...", 
+                                fontSize = 10.sp, 
+                                color = Color.White
+                            ) },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = Color.White.copy(alpha = 0.05f)
+                            ),
+                            border = SuggestionChipDefaults.suggestionChipBorder(
+                                enabled = true,
+                                borderColor = Color.White.copy(alpha = 0.15f)
+                            )
                         )
                     }
                 }
@@ -456,7 +510,10 @@ fun ReviewLogDialog(
                                 fontSize = 11.sp,
                                 color = LiquidTeal,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.clickable { drawPaths.removeLastOrNull() }
+                                modifier = Modifier.clickable { 
+                                    drawPaths.removeLastOrNull() 
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                }
                             )
                         }
                         Text(
@@ -464,7 +521,10 @@ fun ReviewLogDialog(
                             fontSize = 11.sp,
                             color = ClockOutRed,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable { drawPaths.clear() }
+                            modifier = Modifier.clickable { 
+                                drawPaths.clear() 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            }
                         )
                     }
                 }
@@ -483,6 +543,7 @@ fun ReviewLogDialog(
                                     newP.moveTo(offset.x, offset.y)
                                     currentPath = newP
                                     drawPaths.add(newP)
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
                                 },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
@@ -522,7 +583,10 @@ fun ReviewLogDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSubmit(log.id, rating, comment) },
+                onClick = { 
+                    onSubmit(log.id, rating, comment) 
+                    triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
+                },
                 enabled = drawPaths.isNotEmpty(),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -537,7 +601,10 @@ fun ReviewLogDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = { onReject(log.id, comment) },
+                onClick = { 
+                    onReject(log.id, comment) 
+                    triggerCustomHaptic(context, HapticPattern.WARNING_PULSE)
+                },
                 colors = ButtonDefaults.textButtonColors(contentColor = ClockOutRed)
             ) {
                 Text("Reject", fontWeight = FontWeight.Bold)

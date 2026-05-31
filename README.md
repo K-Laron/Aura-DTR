@@ -35,6 +35,16 @@ Built using **Kotlin, Jetpack Compose, and standard MVVM architecture**, the app
 *   **Scannable Verification QR Codes:** Generated PDFs feature canvas QR blocks encoding secure, university validation URLs (`https://verify.auradtr.edu/dtr?hash=...`) rather than raw database hashes.
 *   **WAL Checkpointed ZIP Vaults:** Compiles local ZIP backups containing SQLite databases and check-in selfies. Prior to compression, the app flushes transaction logs using `PRAGMA wal_checkpoint(TRUNCATE)` to guarantee consistent database snapshots.
 
+### 6. Premium Quality of Life (QoL) Hardening
+*   **🚀 Template Presets & "Copy Last" Prefill:** Fast suggestion chips inside Clock sheet and manual entry dialogs alongside an IO-thread database pulls button to copy the trainee's last shift details automatically.
+*   **📅 Dynamic Timesheet Scope Selection:** Date range scope filters in A4 PDF preview sheets (All, This Week, Last Week, This Month, Custom Range) showing live updates and printing coverage timestamps on report headers.
+*   **🔍 Logbook Search & Competency Filtering:** Sleek glassmorphic real-time search inputs and scrollable competency tag selectors using Compose derived states.
+*   **⏳ Ticking Active Lunch Counter:** Displays real-time ticking lunch break countdown tickers in a warning-yellow clock state badge when `ON_BREAK`.
+*   **🎯 Canvas-Based Geofence Radar Visualizer:** Beautiful, high-performance Compose Canvas coordinate grids drawing geofence perimeters and representing trainees as glowing pulsing beacons with sweeping animated locks.
+*   **📤 Direct share sheet triggers:** Instantly launches native Android chooser shares (`Intent.createChooser` with FileProvider content URIs) upon successful PDF timesheet compilation.
+*   **✍️ Supervisor Comment Preset Chips:** Clickable template suggestion reviews (✓ approvals, ⚠️ rejections) to populate comments in one tap.
+*   **📳 Tactile Attendance Haptic Feedback:** High-fidelity tactile vibrations (Double-Pulse for check-in success, Light Pulse for tap presets, Warning Pulse for lockouts/deletions) utilizing native VibrationEffect waveforms.
+
 ---
 
 ## 🏗️ Technical Architecture & Stack

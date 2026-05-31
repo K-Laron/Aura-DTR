@@ -234,18 +234,32 @@ fun MainScreen(viewModel: DtrViewModel) {
             profile = previewProfile!!,
             logs = previewLogs,
             onDismiss = { showPdfPreview = false },
-            onDownload = { template ->
+            onDownload = { template, filteredLogs, coverageText ->
                 try {
                     val downloadsDir = context.getExternalFilesDir(null)
                     val pdfFile = File(downloadsDir, "OJT_DTR_${previewProfile!!.studentName.replace(" ", "_")}.pdf")
                     
-                    PdfExporter().exportDtrToPdf(context, previewProfile!!, previewLogs, pdfFile, templateType = template)
+                    PdfExporter().exportDtrToPdf(context, previewProfile!!, filteredLogs, pdfFile, templateType = template, coverageText = coverageText)
                     showPdfPreview = false
                     
+                    // Directly launch native sharing Intent chooser immediately (QoL 6)
+                    val pdfUri = androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "com.auradtr.app.fileprovider",
+                        pdfFile
+                    )
+                    val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                        type = "application/pdf"
+                        putExtra(android.content.Intent.EXTRA_STREAM, pdfUri)
+                        putExtra(android.content.Intent.EXTRA_SUBJECT, "OJT DTR Timesheet - ${previewProfile!!.studentName}")
+                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share your OJT DTR PDF Timesheet"))
+
                     Toast.makeText(
                         context,
-                        "PDF compiled and saved successfully using $template template!\nSaved to: ${pdfFile.name}",
-                        Toast.LENGTH_LONG
+                        "PDF compiled successfully using $template template!",
+                        Toast.LENGTH_SHORT
                     ).show()
                 } catch (e: Exception) {
                     e.printStackTrace()

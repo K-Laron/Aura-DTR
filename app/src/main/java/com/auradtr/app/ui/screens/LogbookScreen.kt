@@ -33,16 +33,28 @@ import com.auradtr.app.data.TimeLog
 import com.auradtr.app.ui.DtrViewModel
 import com.auradtr.app.ui.theme.*
 import java.time.LocalDate
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 
 @Composable
 fun LogbookScreen(viewModel: DtrViewModel) {
+    val context = LocalContext.current
     val allLogs by viewModel.allLogs.collectAsState(initial = emptyList())
     var showManualDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showManualDialog = true },
+                onClick = { 
+                    showManualDialog = true 
+                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                },
                 containerColor = Color(0xFF14B8A6), // Neon Teal
                 contentColor = Color.White,
                 shape = RoundedCornerShape(16.dp)
@@ -70,13 +82,97 @@ fun LogbookScreen(viewModel: DtrViewModel) {
             DtrHeatmap(allLogs = allLogs)
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (allLogs.isEmpty()) {
+            var searchQuery by remember { mutableStateOf("") }
+            var selectedFilterCompetency by remember { mutableStateOf("All") }
+            val filteredLogs = remember(allLogs, searchQuery, selectedFilterCompetency) {
+                allLogs.filter { log ->
+                    val matchesQuery = log.accomplishments.contains(searchQuery, ignoreCase = true) || log.date.contains(searchQuery)
+                    val matchesCompetency = if (selectedFilterCompetency == "All") {
+                        true
+                    } else {
+                        log.competencyTags.contains(selectedFilterCompetency)
+                    }
+                    matchesQuery && matchesCompetency
+                }
+            }
+
+            // Glassmorphic Search Bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search logs by keyword or date...", fontSize = 13.sp, color = Color.White.copy(alpha = 0.4f)) },
+                modifier = Modifier.fillMaxWidth().glassCard(cornerRadius = 12, isDark = true),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = LiquidTeal
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { 
+                            searchQuery = "" 
+                            triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = Color.White.copy(alpha = 0.5f)
+                            )
+                        }
+                    }
+                },
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = LiquidTeal,
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent
+                )
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Competency Filter Chips Row
+            val filterOptions = listOf("All", "Development", "Design", "Testing", "Database", "Documentation", "Research")
+            androidx.compose.foundation.lazy.LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(filterOptions) { opt ->
+                    val isSelected = selectedFilterCompetency == opt
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { 
+                            selectedFilterCompetency = opt 
+                            triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                        },
+                        label = { Text(opt, fontSize = 10.sp, color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = LiquidTeal.copy(alpha = 0.2f),
+                            selectedLabelColor = LiquidTeal
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            borderColor = Color.White.copy(alpha = 0.1f),
+                            selectedBorderColor = LiquidTeal
+                        )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (filteredLogs.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "No history recorded.\nClick the '+' button below to manually insert historical records.",
+                        text = if (allLogs.isEmpty()) "No history recorded.\nClick the '+' button below to manually insert historical records." else "No logs match your search filters.",
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                         fontSize = 13.sp,
                         textAlign = TextAlign.Center
@@ -87,8 +183,11 @@ fun LogbookScreen(viewModel: DtrViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(allLogs) { log ->
-                        LogbookItem(log, onDelete = { viewModel.deleteLog(log) })
+                    items(filteredLogs) { log ->
+                        LogbookItem(log, onDelete = { 
+                            viewModel.deleteLog(log) 
+                            triggerCustomHaptic(context, HapticPattern.WARNING_PULSE)
+                        })
                     }
                 }
             }
@@ -96,6 +195,7 @@ fun LogbookScreen(viewModel: DtrViewModel) {
 
         if (showManualDialog) {
             AddManualLogDialog(
+                viewModel = viewModel,
                 onDismiss = { showManualDialog = false },
                 onSubmit = { date, timeIn, timeOut, accomplishments, tags ->
                     viewModel.addManualLog(date, timeIn, timeOut, accomplishments, tags)
@@ -108,6 +208,7 @@ fun LogbookScreen(viewModel: DtrViewModel) {
 
 @Composable
 fun LogbookItem(log: TimeLog, onDelete: () -> Unit) {
+    val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     val hrs = log.totalWorkedMinutes / 60
     val mins = log.totalWorkedMinutes % 60
@@ -117,7 +218,10 @@ fun LogbookItem(log: TimeLog, onDelete: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(cornerRadius = 16, isDark = true)
-            .clickable { expanded = !expanded },
+            .clickable { 
+                expanded = !expanded 
+                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+            },
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
         shape = RoundedCornerShape(16.dp)
     ) {
@@ -248,6 +352,7 @@ fun LogbookItem(log: TimeLog, onDelete: () -> Unit) {
 
 @Composable
 fun AddManualLogDialog(
+    viewModel: com.auradtr.app.ui.DtrViewModel,
     onDismiss: () -> Unit,
     onSubmit: (String, String, String, String, List<String>) -> Unit
 ) {
@@ -259,6 +364,11 @@ fun AddManualLogDialog(
     
     val competencies = listOf("Development", "Design", "Testing", "Documentation")
     val selectedCompetencies = remember { mutableStateListOf<String>() }
+
+    var lastAccomplishment by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        lastAccomplishment = viewModel.getLatestAccomplishment()
+    }
 
     // Helpers to launch native system pickers
     fun showDatePicker() {
@@ -335,13 +445,19 @@ fun AddManualLogDialog(
                     label = { Text("Select Date", fontSize = 12.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showDatePicker() },
+                        .clickable { 
+                            showDatePicker() 
+                            triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                        },
                     trailingIcon = {
                         Icon(
                             imageVector = Icons.Default.DateRange,
                             contentDescription = "Select Date",
                             tint = LiquidTeal,
-                            modifier = Modifier.clickable { showDatePicker() }
+                            modifier = Modifier.clickable { 
+                                showDatePicker() 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            }
                         )
                     },
                     colors = OutlinedTextFieldDefaults.colors(
@@ -363,13 +479,19 @@ fun AddManualLogDialog(
                         label = { Text("Time In", fontSize = 12.sp) },
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showTimePicker(true) },
+                            .clickable { 
+                                showTimePicker(true) 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            },
                         trailingIcon = {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Select Time In",
                                 tint = LiquidTeal,
-                                modifier = Modifier.clickable { showTimePicker(true) }
+                                modifier = Modifier.clickable { 
+                                    showTimePicker(true) 
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                }
                             )
                         },
                         colors = OutlinedTextFieldDefaults.colors(
@@ -390,13 +512,19 @@ fun AddManualLogDialog(
                         label = { Text("Time Out", fontSize = 12.sp) },
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { showTimePicker(false) },
+                            .clickable { 
+                                showTimePicker(false) 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            },
                         trailingIcon = {
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = "Select Time Out",
                                 tint = LiquidTeal,
-                                modifier = Modifier.clickable { showTimePicker(false) }
+                                modifier = Modifier.clickable { 
+                                    showTimePicker(false) 
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                }
                             )
                         },
                         colors = OutlinedTextFieldDefaults.colors(
@@ -410,6 +538,58 @@ fun AddManualLogDialog(
                         shape = RoundedCornerShape(12.dp)
                     )
                 }
+                // Quick presets row in manual log dialog
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    if (lastAccomplishment != null) {
+                        item {
+                            SuggestionChip(
+                                onClick = {
+                                    accomplishments = lastAccomplishment ?: ""
+                                    selectedCompetencies.clear()
+                                    competencies.forEach { comp ->
+                                        if (lastAccomplishment?.contains(comp, ignoreCase = true) == true) {
+                                            selectedCompetencies.add(comp)
+                                        }
+                                    }
+                                    if (selectedCompetencies.isEmpty()) selectedCompetencies.add("Development")
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                },
+                                label = { Text("📋 Copy Last Accomplishment", fontSize = 10.sp, color = LiquidTeal) },
+                                border = SuggestionChipDefaults.suggestionChipBorder(
+                                    enabled = true,
+                                    borderColor = LiquidTeal.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
+                    val presets = listOf(
+                        "💻 UI/Design" to "Implemented frontend UI components and refined responsive layout styling.",
+                        "🐞 Bug Fixing" to "Investigated error logs and resolved database/rendering bugs.",
+                        "🧪 Testing" to "Wrote comprehensive unit tests and verified code coverage.",
+                        "📝 Docs" to "Updated project documentation and generated API architectural logs."
+                    )
+                    items(presets) { (label, text) ->
+                        SuggestionChip(
+                            onClick = {
+                                accomplishments = text
+                                selectedCompetencies.clear()
+                                val tagMatch = when(label) {
+                                    "💻 UI/Design" -> "Design"
+                                    "🐞 Bug Fixing" -> "Development"
+                                    "🧪 Testing" -> "Testing"
+                                    else -> "Documentation"
+                                }
+                                selectedCompetencies.add(tagMatch)
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            },
+                            label = { Text(label, fontSize = 10.sp, color = Color.White) }
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = accomplishments,
                     onValueChange = { accomplishments = it },
@@ -443,7 +623,10 @@ fun AddManualLogDialog(
                         val isSelected = selectedCompetencies.contains(comp)
                         FilterChip(
                             selected = isSelected,
-                            onClick = { if (isSelected) selectedCompetencies.remove(comp) else selectedCompetencies.add(comp) },
+                            onClick = { 
+                                if (isSelected) selectedCompetencies.remove(comp) else selectedCompetencies.add(comp) 
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                            },
                             label = { Text(comp, fontSize = 9.sp, color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f)) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = LiquidTeal.copy(alpha = 0.2f),
@@ -462,7 +645,10 @@ fun AddManualLogDialog(
         },
         confirmButton = {
             Button(
-                onClick = { onSubmit(date, clockIn, clockOut, accomplishments, selectedCompetencies.toList()) },
+                onClick = { 
+                    onSubmit(date, clockIn, clockOut, accomplishments, selectedCompetencies.toList()) 
+                    triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
+                },
                 enabled = accomplishments.isNotBlank() && isDateValid && isTimeInValid && isTimeOutValid,
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -477,7 +663,10 @@ fun AddManualLogDialog(
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss,
+                onClick = {
+                    onDismiss()
+                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                },
                 colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.7f))
             ) {
                 Text("Cancel", fontWeight = FontWeight.Bold)

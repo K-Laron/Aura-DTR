@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -35,17 +37,97 @@ import com.auradtr.app.data.Profile
 import com.auradtr.app.data.TimeLog
 import com.auradtr.app.ui.theme.*
 import java.time.Instant
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PdfPreviewDialog(
     profile: Profile,
     logs: List<TimeLog>,
     onDismiss: () -> Unit,
-    onDownload: (String) -> Unit
+    onDownload: (String, List<TimeLog>, String) -> Unit
 ) {
     var templateType by remember { mutableStateOf("STANDARD") } // STANDARD or MODERN
+    var selectedRangeOption by remember { mutableStateOf("All") } // All, This Week, Last Week, This Month, Custom
+    var customStartDate by remember { mutableStateOf(LocalDate.now().minusWeeks(1).toString()) }
+    var customEndDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    
+    val context = LocalContext.current
     val scrollState = rememberScrollState()
+
+    // Helpers to launch DatePicker for Custom Range
+    fun showCustomDatePicker(isStart: Boolean) {
+        val currentStr = if (isStart) customStartDate else customEndDate
+        val current = try { LocalDate.parse(currentStr) } catch(e: Exception) { LocalDate.now() }
+        android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val selectedDate = LocalDate.of(year, month + 1, dayOfMonth)
+                if (isStart) customStartDate = selectedDate.toString() else customEndDate = selectedDate.toString()
+            },
+            current.year,
+            current.monthValue - 1,
+            current.dayOfMonth
+        ).show()
+    }
+
+    // Dynamic log filtering based on selection
+    val filteredLogs = remember(logs, selectedRangeOption, customStartDate, customEndDate) {
+        val now = LocalDate.now()
+        when (selectedRangeOption) {
+            "This Week" -> {
+                val start = now.minusDays((now.dayOfWeek.value - 1).toLong())
+                logs.filter {
+                    val logDate = LocalDate.parse(it.date)
+                    !logDate.isBefore(start) && !logDate.isAfter(now)
+                }
+            }
+            "Last Week" -> {
+                val startOfWeek = now.minusDays((now.dayOfWeek.value - 1).toLong())
+                val start = startOfWeek.minusWeeks(1)
+                val end = startOfWeek.minusDays(1)
+                logs.filter {
+                    val logDate = LocalDate.parse(it.date)
+                    !logDate.isBefore(start) && !logDate.isAfter(end)
+                }
+            }
+            "This Month" -> {
+                val start = now.withDayOfMonth(1)
+                logs.filter {
+                    val logDate = LocalDate.parse(it.date)
+                    !logDate.isBefore(start) && !logDate.isAfter(now)
+                }
+            }
+            "Custom" -> {
+                try {
+                    val start = LocalDate.parse(customStartDate)
+                    val end = LocalDate.parse(customEndDate)
+                    logs.filter {
+                        val logDate = LocalDate.parse(it.date)
+                        !logDate.isBefore(start) && !logDate.isAfter(end)
+                    }
+                } catch(e: Exception) {
+                    logs
+                }
+            }
+            else -> logs
+        }
+    }
+
+    val coverageText = remember(selectedRangeOption, filteredLogs, customStartDate, customEndDate) {
+        if (filteredLogs.isEmpty()) {
+            "Coverage: No records"
+        } else {
+            val dates = filteredLogs.map { LocalDate.parse(it.date) }.sorted()
+            if (dates.isNotEmpty()) {
+                val formatter = DateTimeFormatter.ofPattern("MMM dd, yyyy")
+                "Coverage: ${dates.first().format(formatter)} - ${dates.last().format(formatter)}"
+            } else {
+                "Coverage: Full Logbook"
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -77,7 +159,7 @@ fun PdfPreviewDialog(
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    IconButton(onClick = { onDownload(templateType) }) {
+                    IconButton(onClick = { onDownload(templateType, filteredLogs, coverageText) }) {
                         Icon(
                             imageVector = Icons.Default.Share,
                             contentDescription = "Download",
@@ -96,6 +178,85 @@ fun PdfPreviewDialog(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
+                    // Date-Range Selector Card
+                    Card(
+                        modifier = Modifier
+                            .width(360.dp)
+                            .glassCard(cornerRadius = 16, isDark = true),
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                "EXPORT DATE SCOPE FILTER",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = LiquidTeal,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            val rangeOptions = listOf("All", "This Week", "Last Week", "This Month", "Custom")
+                            androidx.compose.foundation.lazy.LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                items(rangeOptions) { opt ->
+                                    val isSelected = selectedRangeOption == opt
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { selectedRangeOption = opt },
+                                        label = { Text(opt, fontSize = 9.sp, color = if (isSelected) Color.White else Color.White.copy(alpha = 0.6f)) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = LiquidTeal.copy(alpha = 0.2f),
+                                            selectedLabelColor = LiquidTeal
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = isSelected,
+                                            borderColor = Color.White.copy(alpha = 0.1f),
+                                            selectedBorderColor = LiquidTeal
+                                        )
+                                    )
+                                }
+                            }
+                            
+                            if (selectedRangeOption == "Custom") {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    OutlinedTextField(
+                                        value = customStartDate,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("Start Date", fontSize = 10.sp) },
+                                        modifier = Modifier.weight(1f).clickable { showCustomDatePicker(true) },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedBorderColor = LiquidTeal,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f)
+                                        ),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    OutlinedTextField(
+                                        value = customEndDate,
+                                        onValueChange = {},
+                                        readOnly = true,
+                                        label = { Text("End Date", fontSize = 10.sp) },
+                                        modifier = Modifier.weight(1f).clickable { showCustomDatePicker(false) },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedBorderColor = LiquidTeal,
+                                            unfocusedBorderColor = Color.White.copy(alpha = 0.1f)
+                                        ),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Template Selector Pill
                     Row(
                         modifier = Modifier
@@ -111,7 +272,7 @@ fun PdfPreviewDialog(
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                "Classic standard",
+                                "Classic Standard",
                                 color = if (templateType == "STANDARD") Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
@@ -133,8 +294,8 @@ fun PdfPreviewDialog(
                         }
                     }
 
-                    val pageCount = if (logs.isEmpty()) 1 else {
-                        val totalLogs = logs.size
+                    val pageCount = if (filteredLogs.isEmpty()) 1 else {
+                        val totalLogs = filteredLogs.size
                         if (totalLogs <= 20) 1 else {
                             1 + kotlin.math.ceil((totalLogs - 20) / 25.0).toInt()
                         }
@@ -150,17 +311,14 @@ fun PdfPreviewDialog(
                                 .border(1.dp, Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                         ) {
                             Canvas(modifier = Modifier.fillMaxSize()) {
-                                // Drawing calculations (A4: 595 x 842 points mapped to 360 x 510 dp)
                                 val scaleX = size.width / 595f
                                 val scaleY = size.height / 842f
 
-                                // Draw Document Border
                                 val isModern = templateType == "MODERN"
                                 val accentColor = if (isModern) Color(0xFF00796B) else Color.DarkGray
-                                val accentPaintColor = accentColor
 
                                 drawRect(
-                                    color = accentPaintColor.copy(alpha = 0.8f),
+                                    color = accentColor.copy(alpha = 0.8f),
                                     topLeft = Offset(20f * scaleX, 20f * scaleY),
                                     size = Size(555f * scaleX, 802f * scaleY),
                                     style = Stroke(width = 1f * scaleX)
@@ -173,9 +331,7 @@ fun PdfPreviewDialog(
                                     }
 
                                     if (pageNum == 1) {
-                                        // Title Block
                                         if (isModern) {
-                                            // Draw filled modern header block
                                             drawRoundRect(
                                                 color = Color(0xFF00796B),
                                                 topLeft = Offset(30f * scaleX, 35f * scaleY),
@@ -184,7 +340,6 @@ fun PdfPreviewDialog(
                                             )
                                         }
 
-                                        // Header Text
                                         paint.color = if (isModern) android.graphics.Color.WHITE else android.graphics.Color.BLACK
                                         paint.textSize = 12f * scaleY
                                         paint.isFakeBoldText = true
@@ -194,7 +349,6 @@ fun PdfPreviewDialog(
                                         paint.isFakeBoldText = false
                                         nativeCanvas.drawText("DAILY TIME RECORD (DTR) & ACTIVITY SHEET", 40f * scaleX, 68f * scaleY, paint)
 
-                                        // Student Details block
                                         paint.color = android.graphics.Color.BLACK
                                         paint.textSize = 8f * scaleY
                                         var y = 105f
@@ -206,8 +360,16 @@ fun PdfPreviewDialog(
                                         y += 15f
                                         nativeCanvas.drawText("COMPANY: ${profile.companyName}", 40f * scaleX, y * scaleY, paint)
                                         nativeCanvas.drawText("SUPERVISOR: ${profile.supervisorName}", 320f * scaleX, y * scaleY, paint)
+                                        
+                                        // Draw coverage details printed dynamically on header
+                                        y += 13f
+                                        paint.isFakeBoldText = true
+                                        paint.textSize = 7.5f * scaleY
+                                        paint.color = android.graphics.Color.parseColor(if (isModern) "#00796B" else "#333333")
+                                        nativeCanvas.drawText(coverageText, 40f * scaleX, y * scaleY, paint)
+                                        paint.isFakeBoldText = false
+                                        paint.color = android.graphics.Color.BLACK
 
-                                        // Draw QR placeholder
                                         val qrX = 490f * scaleX
                                         val qrY = 32f * scaleY
                                         val qrSize = 58f * scaleX
@@ -219,7 +381,6 @@ fun PdfPreviewDialog(
                                         nativeCanvas.drawRect(qrX, qrY, qrX + qrSize, qrY + qrSize, paint)
                                         paint.style = android.graphics.Paint.Style.FILL
 
-                                        // Table Header Block
                                         y += 20f
                                         paint.color = if (isModern) android.graphics.Color.parseColor("#E0F2F1") else android.graphics.Color.parseColor("#E0E0E0")
                                         nativeCanvas.drawRect(40f * scaleX, y * scaleY, 555f * scaleX, (y + 18f) * scaleY, paint)
@@ -241,9 +402,8 @@ fun PdfPreviewDialog(
                                         y += 18f
                                         paint.isFakeBoldText = false
 
-                                        // Draw Rows for Page 1 (up to 20 logs)
                                         val rowH = 18f
-                                        val pageLogs = logs.take(20)
+                                        val pageLogs = filteredLogs.take(20)
                                         pageLogs.forEachIndexed { rowIdx, log ->
                                             val rowY = y + rowIdx * rowH
                                             paint.style = android.graphics.Paint.Style.STROKE
@@ -278,18 +438,15 @@ fun PdfPreviewDialog(
                                             paint.color = android.graphics.Color.BLACK
                                         }
 
-                                        // Draw Sign Block if it is the only page
                                         if (pageCount == 1) {
-                                            drawSignBlock(nativeCanvas, scaleX, scaleY, 720f, borderPaint = android.graphics.Paint().apply { color = if (isModern) android.graphics.Color.parseColor("#00796B") else android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1f }, detailsPaint = paint, logs = logs, profile = profile)
+                                            drawSignBlock(nativeCanvas, scaleX, scaleY, 720f, borderPaint = android.graphics.Paint().apply { color = if (isModern) android.graphics.Color.parseColor("#00796B") else android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1f }, detailsPaint = paint, logs = filteredLogs, profile = profile)
                                         }
                                     } else {
-                                        // Draw Continued Header on subsequent page
                                         paint.color = if (isModern) android.graphics.Color.parseColor("#00796B") else android.graphics.Color.BLACK
                                         paint.textSize = 10f * scaleY
                                         paint.isFakeBoldText = true
                                         nativeCanvas.drawText("UNIVERSITY INTERNSHIP REPORT - DTR (PAGE $pageNum)", 40f * scaleX, 45f * scaleY, paint)
 
-                                        // Draw Table Header on subsequent page
                                         val headerY = 60f
                                         paint.color = if (isModern) android.graphics.Color.parseColor("#E0F2F1") else android.graphics.Color.parseColor("#E0E0E0")
                                         nativeCanvas.drawRect(40f * scaleX, headerY * scaleY, 555f * scaleX, (headerY + 18f) * scaleY, paint)
@@ -309,10 +466,9 @@ fun PdfPreviewDialog(
 
                                         paint.isFakeBoldText = false
 
-                                        // Draw rows for this page
                                         val rowH = 18f
                                         val startIndex = 20 + (pageNum - 2) * 25
-                                        val pageLogs = logs.drop(startIndex).take(25)
+                                        val pageLogs = filteredLogs.drop(startIndex).take(25)
                                         var y = 80f
                                         pageLogs.forEachIndexed { rowIdx, log ->
                                             val rowY = y + rowIdx * rowH
@@ -348,9 +504,8 @@ fun PdfPreviewDialog(
                                             paint.color = android.graphics.Color.BLACK
                                         }
 
-                                        // Draw sign block if it is the last page
                                         if (pageNum == pageCount) {
-                                            drawSignBlock(nativeCanvas, scaleX, scaleY, 720f, borderPaint = android.graphics.Paint().apply { color = if (isModern) android.graphics.Color.parseColor("#00796B") else android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1f }, detailsPaint = paint, logs = logs, profile = profile)
+                                            drawSignBlock(nativeCanvas, scaleX, scaleY, 720f, borderPaint = android.graphics.Paint().apply { color = if (isModern) android.graphics.Color.parseColor("#00796B") else android.graphics.Color.BLACK; style = android.graphics.Paint.Style.STROKE; strokeWidth = 1f }, detailsPaint = paint, logs = filteredLogs, profile = profile)
                                         }
                                     }
                                 }
@@ -385,7 +540,7 @@ fun PdfPreviewDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Button(
-                        onClick = { onDownload(templateType) },
+                        onClick = { onDownload(templateType, filteredLogs, coverageText) },
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -431,7 +586,6 @@ private fun drawSignBlock(
     nativeCanvas.drawText("STUDENT INTERN SIGNATURE", 48f * scaleX, (y + 12f) * scaleY, detailsPaint)
     nativeCanvas.drawText("SUPERVISOR SIGNATURE & DATE", 385f * scaleX, (y + 12f) * scaleY, detailsPaint)
 
-    // PIN / SHA verified stamp
     if (logs.any { it.verificationStatus == "APPROVED" }) {
         detailsPaint.color = android.graphics.Color.parseColor("#059669")
         detailsPaint.textSize = 6.5f * scaleY

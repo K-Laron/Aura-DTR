@@ -352,6 +352,12 @@ class DtrViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun getLatestAccomplishment(): String? {
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            dao.getLatestAccomplishmentSync()
+        }
+    }
+
     fun syncLogsWithPortal() {
         if (_isSyncing.value) return
         viewModelScope.launch {

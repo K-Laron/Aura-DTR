@@ -43,4 +43,7 @@ interface DtrDao {
 
     @Query("SELECT * FROM time_logs WHERE id = :id LIMIT 1")
     suspend fun getLogByIdSync(id: String): TimeLog?
+
+    @Query("SELECT accomplishments FROM time_logs WHERE isDeleted = 0 AND accomplishments != '' ORDER BY date DESC, clockIn DESC LIMIT 1")
+    suspend fun getLatestAccomplishmentSync(): String?
 }

@@ -25,7 +25,8 @@ class PdfExporter {
         profile: Profile,
         logs: List<TimeLog>,
         outputFile: File,
-        templateType: String = "STANDARD"
+        templateType: String = "STANDARD",
+        coverageText: String? = null
     ): File {
         val pdfDocument = PdfDocument()
         try {
@@ -100,6 +101,18 @@ class PdfExporter {
             y += 18f
             canvas.drawText("COMPANY: ${profile.companyName}", 40f, y, detailsPaint)
             canvas.drawText("SUPERVISOR: ${profile.supervisorName} (${profile.supervisorTitle})", 320f, y, detailsPaint)
+            
+            // Draw coverage details printed dynamically on header
+            if (coverageText != null) {
+                y += 15f
+                val coveragePaint = Paint().apply {
+                    color = Color.parseColor(accentColorString)
+                    textSize = 8.5f
+                    isFakeBoldText = true
+                    isAntiAlias = true
+                }
+                canvas.drawText(coverageText, 40f, y, coveragePaint)
+            }
             
             // Compile SHA-256 integrity hash for QR verification
             val logsRawText = logs.joinToString("|") { "${it.date}:${it.totalWorkedMinutes}:${it.verificationStatus}" }

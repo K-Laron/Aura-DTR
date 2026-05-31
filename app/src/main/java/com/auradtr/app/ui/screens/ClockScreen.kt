@@ -42,6 +42,8 @@ import com.auradtr.app.data.TimeLog
 import com.auradtr.app.ui.ClockState
 import com.auradtr.app.ui.DtrViewModel
 import com.auradtr.app.ui.theme.*
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.drawscope.Stroke
 import kotlinx.coroutines.delay
 import java.io.File
 import java.time.Duration
@@ -275,24 +277,34 @@ fun ClockScreen(viewModel: DtrViewModel) {
     var tickerText by remember { mutableStateOf("00:00:00") }
     
     LaunchedEffect(activeLog, clockState) {
-        while (clockState == ClockState.CLOCKED_IN) {
+        while (clockState == ClockState.CLOCKED_IN || clockState == ClockState.ON_BREAK) {
             val log = activeLog
             if (log != null) {
-                val start = Instant.parse(log.clockIn)
-                var elapsed = Duration.between(start, Instant.now())
-                
-                // Subtract lunch break if active
-                if (log.lunchStart != null) {
-                    val lunchStart = Instant.parse(log.lunchStart)
-                    val lunchEnd = if (log.lunchEnd != null) Instant.parse(log.lunchEnd) else Instant.now()
-                    elapsed = elapsed.minus(Duration.between(lunchStart, lunchEnd))
+                if (clockState == ClockState.ON_BREAK && log.lunchStart != null) {
+                    val breakStart = Instant.parse(log.lunchStart)
+                    val elapsedBreak = Duration.between(breakStart, Instant.now())
+                    val secs = elapsedBreak.getSeconds()
+                    val hrs = secs / 3600
+                    val mins = (secs % 3600) / 60
+                    val scs = secs % 60
+                    tickerText = String.format("%02d:%02d:%02d", hrs, mins, scs)
+                } else if (clockState == ClockState.CLOCKED_IN) {
+                    val start = Instant.parse(log.clockIn)
+                    var elapsed = Duration.between(start, Instant.now())
+                    
+                    // Subtract lunch break if active
+                    if (log.lunchStart != null) {
+                        val lunchStart = Instant.parse(log.lunchStart)
+                        val lunchEnd = if (log.lunchEnd != null) Instant.parse(log.lunchEnd) else Instant.now()
+                        elapsed = elapsed.minus(Duration.between(lunchStart, lunchEnd))
+                    }
+                    
+                    val secs = elapsed.getSeconds()
+                    val hrs = secs / 3600
+                    val mins = (secs % 3600) / 60
+                    val scs = secs % 60
+                    tickerText = String.format("%02d:%02d:%02d", hrs, mins, scs)
                 }
-                
-                val secs = elapsed.getSeconds()
-                val hrs = secs / 3600
-                val mins = (secs % 3600) / 60
-                val scs = secs % 60
-                tickerText = String.format("%02d:%02d:%02d", hrs, mins, scs)
             }
             delay(1000)
         }
@@ -384,13 +396,13 @@ fun ClockScreen(viewModel: DtrViewModel) {
                     text = tickerText,
                     fontSize = 54.sp,
                     fontWeight = FontWeight.W800,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = if (clockState == ClockState.ON_BREAK) BreakYellow else MaterialTheme.colorScheme.onBackground,
                     letterSpacing = 1.sp,
                     textAlign = TextAlign.Center
                 )
                 Text(
-                    text = "worked today (excluding breaks)",
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                    text = if (clockState == ClockState.ON_BREAK) "elapsed break time (lunch)" else "worked today (excluding breaks)",
+                    color = (if (clockState == ClockState.ON_BREAK) BreakYellow else MaterialTheme.colorScheme.onBackground).copy(alpha = 0.5f),
                     fontSize = 12.sp,
                     textAlign = TextAlign.Center
                 )
@@ -602,7 +614,7 @@ fun ClockScreen(viewModel: DtrViewModel) {
                                     CircleShape
                                 )
                                 .clickable {
-                                    triggerHaptic(context)
+                                    triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
                                     when (clockState) {
                                         ClockState.CLOCKED_OUT -> {
                                             val finalLocation = if (profile?.geofenceEnabled == true) {
@@ -668,7 +680,7 @@ fun ClockScreen(viewModel: DtrViewModel) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            triggerHaptic(context)
+                            triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
                             viewModel.startLunch()
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -751,6 +763,14 @@ fun ClockScreen(viewModel: DtrViewModel) {
                                     )
                                 }
                             }
+                            
+                            Spacer(modifier = Modifier.height(10.dp))
+                            GeofenceRadarVisualizer(
+                                isOnSite = isOnSite,
+                                relativeDistance = distance ?: if (isOnSite) 24f else 350f,
+                                geofenceRadius = (profile?.workGeofenceRadius ?: 100).toFloat()
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
                             
                             // Mock Location Simulation Switcher
                             Text(
@@ -853,6 +873,7 @@ fun ClockScreen(viewModel: DtrViewModel) {
         // Clock Out Accomplishment Journal Sheet
         if (showJournalSheet) {
             JournalBottomSheet(
+                viewModel = viewModel,
                 onDismiss = { showJournalSheet = false },
                 onSubmit = { text, tags ->
                     viewModel.clockOut(text, tags)
@@ -863,7 +884,13 @@ fun ClockScreen(viewModel: DtrViewModel) {
     }
 }
 
-private fun triggerHaptic(context: Context) {
+enum class HapticPattern {
+    DOUBLE_PULSE,
+    LIGHT_PULSE,
+    WARNING_PULSE
+}
+
+fun triggerCustomHaptic(context: Context, pattern: HapticPattern) {
     val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager
         vibratorManager.defaultVibrator
@@ -873,10 +900,126 @@ private fun triggerHaptic(context: Context) {
     }
     if (vibrator.hasVibrator()) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(30, VibrationEffect.DEFAULT_AMPLITUDE))
+            when (pattern) {
+                HapticPattern.DOUBLE_PULSE -> {
+                    val timings = longArrayOf(0, 40, 80, 40)
+                    val amplitudes = intArrayOf(0, 150, 0, 150)
+                    vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+                }
+                HapticPattern.LIGHT_PULSE -> {
+                    vibrator.vibrate(VibrationEffect.createOneShot(15, 80))
+                }
+                HapticPattern.WARNING_PULSE -> {
+                    val timings = longArrayOf(0, 100, 50, 100, 50, 200)
+                    val amplitudes = intArrayOf(0, 200, 0, 200, 0, 255)
+                    vibrator.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1))
+                }
+            }
         } else {
             @Suppress("DEPRECATION")
-            vibrator.vibrate(30)
+            when (pattern) {
+                HapticPattern.DOUBLE_PULSE -> {
+                    vibrator.vibrate(longArrayOf(0, 40, 80, 40), -1)
+                }
+                HapticPattern.LIGHT_PULSE -> {
+                    vibrator.vibrate(15)
+                }
+                HapticPattern.WARNING_PULSE -> {
+                    vibrator.vibrate(longArrayOf(0, 100, 50, 100, 50, 200), -1)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GeofenceRadarVisualizer(
+    isOnSite: Boolean,
+    relativeDistance: Float,
+    geofenceRadius: Float
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "radar")
+    val radarSweepAngle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "sweep"
+    )
+    val beaconPulse by infiniteTransition.animateFloat(
+        initialValue = 4f,
+        targetValue = 12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "beacon"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(110.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.4f))
+            .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+            val center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2)
+            val maxRadius = minOf(size.width, size.height) / 2
+            
+            // Draw grid concentric radar circles
+            drawCircle(color = Color.White.copy(alpha = 0.05f), radius = maxRadius * 0.3f, center = center, style = Stroke(1f))
+            drawCircle(color = Color.White.copy(alpha = 0.05f), radius = maxRadius * 0.6f, center = center, style = Stroke(1f))
+            drawCircle(color = Color.White.copy(alpha = 0.05f), radius = maxRadius * 0.9f, center = center, style = Stroke(1f))
+
+            // Draw axis lines
+            drawLine(color = Color.White.copy(alpha = 0.08f), start = androidx.compose.ui.geometry.Offset(center.x - maxRadius, center.y), end = androidx.compose.ui.geometry.Offset(center.x + maxRadius, center.y))
+            drawLine(color = Color.White.copy(alpha = 0.08f), start = androidx.compose.ui.geometry.Offset(center.x, center.y - maxRadius), end = androidx.compose.ui.geometry.Offset(center.x, center.y + maxRadius))
+
+            // Draw Geofence Perimeter Boundary Circle
+            val perimeterColor = if (isOnSite) ClockInGreen else ClockOutRed
+            drawCircle(
+                color = perimeterColor.copy(alpha = 0.2f),
+                radius = maxRadius * 0.7f,
+                center = center,
+                style = Stroke(2.dp.toPx(), pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+            )
+
+            // Draw revolving radar sweep gradient
+            drawArc(
+                brush = Brush.sweepGradient(
+                    colors = listOf(Color.Transparent, perimeterColor.copy(alpha = 0.15f), Color.Transparent),
+                    center = center
+                ),
+                startAngle = radarSweepAngle - 45f,
+                sweepAngle = 45f,
+                useCenter = true
+            )
+
+            // Draw OJT Coordinate Center Beacon
+            drawCircle(color = LiquidTeal, radius = 5.dp.toPx(), center = center)
+            drawCircle(color = LiquidTeal.copy(alpha = 0.3f), radius = 9.dp.toPx(), center = center, style = Stroke(1.dp.toPx()))
+
+            // Calculate student relative coordinate
+            val maxVisualDist = maxRadius * 0.7f
+            val visualDist = if (isOnSite) {
+                (relativeDistance / geofenceRadius) * maxVisualDist * 0.8f
+            } else {
+                maxVisualDist + (relativeDistance - geofenceRadius) / geofenceRadius * (maxRadius - maxVisualDist)
+            }.coerceIn(5f, maxRadius * 0.95f)
+
+            val angleRad = Math.toRadians(-60.0).toFloat()
+            val studentX = center.x + visualDist * Math.cos(angleRad.toDouble()).toFloat()
+            val studentY = center.y + visualDist * Math.sin(angleRad.toDouble()).toFloat()
+            val studentPos = androidx.compose.ui.geometry.Offset(studentX, studentY)
+
+            // Draw trainee pulsing beacon
+            drawCircle(color = perimeterColor.copy(alpha = 0.25f), radius = beaconPulse.dp.toPx(), center = studentPos)
+            drawCircle(color = perimeterColor, radius = 4.dp.toPx(), center = studentPos)
         }
     }
 }
@@ -884,12 +1027,20 @@ private fun triggerHaptic(context: Context) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JournalBottomSheet(
+    viewModel: com.auradtr.app.ui.DtrViewModel,
     onDismiss: () -> Unit,
     onSubmit: (String, List<String>) -> Unit
 ) {
     var accomplishments by remember { mutableStateOf("") }
     val tagsList = listOf("Development", "Design", "Testing", "Database", "Documentation", "Research")
     val selectedTags = remember { mutableStateListOf<String>() }
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    var lastAccomplishment by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        lastAccomplishment = viewModel.getLatestAccomplishment()
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -909,6 +1060,62 @@ fun JournalBottomSheet(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
+
+                // Quick accomplishments templates chips row
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    if (lastAccomplishment != null) {
+                        item {
+                            SuggestionChip(
+                                onClick = {
+                                    triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                    accomplishments = lastAccomplishment ?: ""
+                                    selectedTags.clear()
+                                    tagsList.forEach { tag ->
+                                        if (lastAccomplishment?.contains(tag, ignoreCase = true) == true) {
+                                            selectedTags.add(tag)
+                                        }
+                                    }
+                                    if (selectedTags.isEmpty()) selectedTags.add("Development")
+                                },
+                                label = { Text("📋 Copy Last Accomplishment", fontSize = 10.sp, color = LiquidTeal) },
+                                border = SuggestionChipDefaults.suggestionChipBorder(
+                                    enabled = true,
+                                    borderColor = LiquidTeal.copy(alpha = 0.4f)
+                                )
+                            )
+                        }
+                    }
+                    val presets = listOf(
+                        "💻 UI/Design" to "Implemented frontend UI components and refined responsive layout styling.",
+                        "🐞 Bug Fixing" to "Investigated error logs and resolved database/rendering bugs.",
+                        "🧪 Testing" to "Wrote comprehensive unit tests and verified code coverage.",
+                        "📝 Docs" to "Updated project documentation and generated API architectural logs.",
+                        "🔍 Code Review" to "Performed code reviews, refactored logic, and cleaned up legacy code."
+                    )
+                    items(presets) { preset ->
+                        val (label, text) = preset
+                        SuggestionChip(
+                            onClick = {
+                                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                                accomplishments = text
+                                selectedTags.clear()
+                                val tagMatch = when(label) {
+                                    "💻 UI/Design" -> "Design"
+                                    "🐞 Bug Fixing" -> "Database"
+                                    "🧪 Testing" -> "Testing"
+                                    "📝 Docs" -> "Documentation"
+                                    else -> "Research"
+                                }
+                                selectedTags.add(tagMatch)
+                            },
+                            label = { Text(label, fontSize = 10.sp, color = Color.White) }
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = accomplishments,
                     onValueChange = { accomplishments = it },
@@ -934,7 +1141,6 @@ fun JournalBottomSheet(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
-                // Competencies tags row wrap
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -948,6 +1154,7 @@ fun JournalBottomSheet(
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = {
+                                        triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
                                         if (isSelected) selectedTags.remove(tag) else selectedTags.add(tag)
                                     },
                                     label = { Text(tag, fontSize = 10.sp) }
@@ -960,6 +1167,7 @@ fun JournalBottomSheet(
                                 FilterChip(
                                     selected = isSelected,
                                     onClick = {
+                                        triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
                                         if (isSelected) selectedTags.remove(tag) else selectedTags.add(tag)
                                     },
                                     label = { Text(tag, fontSize = 10.sp) }
@@ -972,7 +1180,10 @@ fun JournalBottomSheet(
         },
         confirmButton = {
             Button(
-                onClick = { onSubmit(accomplishments, selectedTags.toList()) },
+                onClick = {
+                    triggerCustomHaptic(context, HapticPattern.DOUBLE_PULSE)
+                    onSubmit(accomplishments, selectedTags.toList())
+                },
                 enabled = accomplishments.trim().length >= 10,
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(12.dp)
@@ -981,7 +1192,10 @@ fun JournalBottomSheet(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(onClick = {
+                triggerCustomHaptic(context, HapticPattern.LIGHT_PULSE)
+                onDismiss()
+            }) {
                 Text("Cancel")
             }
         },
